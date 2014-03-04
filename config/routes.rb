@@ -15,7 +15,7 @@ Spree::Core::Engine.routes.draw do
   # match '/alipay_checkout/notify/' => 'checkout#alipay_notify', :as => :alipay_notify
   get '/alipay_checkout/done' => 'checkout#alipay_done', :as => :alipay_done
   post '/alipay_checkout/notify' => 'checkout#alipay_notify', :as => :alipay_notify
-  get '/alipay_checkout/notify' => 'checkout#alipay_notify', :as => :getalipay_notify
+  # get '/alipay_checkout/notify' => 'checkout#alipay_notify', :as => :getalipay_notify
   # get '/alipay_checkout/done/' => 'checkout#alipay_done', :as => :alipay_done
   #  post '/alipay_checkout/done/' => 'checkout#alipay_done', :as => :alipay_done
 end
