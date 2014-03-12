@@ -3,35 +3,57 @@ require 'httparty'
 
 module Spree
   CheckoutController.class_eval do
+
+    # cattr_accessor :skip_payment_methods
+    # self.skip_payment_methods = [:alipay_notify, :alipay_done]#, :tenpay_notify, :tenpay_done
+    # before_filter :alipay_checkout_hook, :only => [:update]
+    # skip_before_filter :load_order, :ensure_valid_state, :only => self.skip_payment_methods
+    # # #invoid WARNING: Can't verify CSRF token authenticity
+    # skip_before_filter :verify_authenticity_token, :only => self.skip_payment_methods
+    # # # these two filters is from spree_auth_devise
+    # skip_before_filter :check_registration, :check_authorization, :only=> self.skip_payment_methods
+
+
     cattr_accessor :skip_payment_methods
     self.skip_payment_methods = [:alipay_notify, :alipay_done]#, :tenpay_notify, :tenpay_done
     before_filter :alipay_checkout_hook, :only => [:update]
-    skip_before_filter :load_order, :setup_for_current_state, :ensure_sufficient_stock_lines ,:ensure_valid_state, :ensure_order_not_completed, :ensure_checkout_allowed, :only => [:alipay_notify]
-    skip_before_filter :ensure_valid_state, :only=> [:alipay_done]
+    skip_before_filter :load_order, :ensure_valid_state, :ensure_order_not_completed, :ensure_checkout_allowed, :only => [:alipay_notify]
+    skip_before_filter :ensure_valid_state, :ensure_checkout_allowed, :only=> [:alipay_done]
     # #invoid WARNING: Can't verify CSRF token authenticity
     skip_before_filter :verify_authenticity_token, :only => self.skip_payment_methods
     # # these two filters is from spree_auth_devise
     skip_before_filter :check_registration, :check_authorization, :only=> self.skip_payment_methods
 
+# https://cashier.alipay.com/standard/result/rnPaymentResult.htm?payNo=201403046HRC9800&orderDetailUrl=http%3A%2F%2Ftradeexprod-pool%2Ftile%2Fservice%2Fhome%3AcashierOrderDetail.tile&outBizNo=2014030476031300&msg=%7B%7D&bizIdentity=trade20001&orderId=030453a55f84a3f0737eba6014277000
+    # def before_address
+    #   @order.bill_address ||= Address.default
+    #   # byebug
+    #   if @order.checkout_steps.include? "delivery"
+    #     @order.ship_address ||= Address.default
+    #     if spree_current_user
+    #       order_index = spree_current_user.orders.count - 2 
+    #       if order_index >= 0
+    #         @order.bill_address = spree_current_user.orders[order_index].ship_address
+    #         @order.ship_address = @order.bill_address
+    #       end
+    #     end
+    #   end
+    # end
 
-    def before_address
-      @order.bill_address ||= Address.default
-      # byebug
-      if @order.checkout_steps.include? "delivery"
-        @order.ship_address ||= Address.default
-        if spree_current_user
-          order_index = spree_current_user.orders.count - 2 
-          if order_index >= 0
-            @order.bill_address = spree_current_user.orders[order_index].ship_address
-            @order.ship_address = @order.bill_address
-          end
-        end
-      end
-    end
+# _type=trade_status_sync&out_trade_no=R571153102&payment_type=1&seller_email=mybox%40imybox.com.cn&seller_id=2088701730421315&subject=%E8%AE%A2%E5%8D%95%E7%BC%96%E5%8F%B7%3AR571153102&total_fee=0.01&trade_no=2014030476157800&trade_status=TRADE_SUCCESS&sign=fda04321c8b4afb8b45203df1b6fc9fb&sign_type=MD5
+    #   def before_delivery
+    #     byebug
+    #     return if params[:order].present?
+
+    #     packages = @order.shipments.map { |s| s.to_package }
+    #     @differentiator = Spree::Stock::Differentiator.new(@order, packages)
+    #   end
 
     def alipay_done
       payment_return = ActiveMerchant::Billing::Integrations::Alipay::Return.new(request.query_string)
-
+      byebug
+      retrieve_order(request.params['out_trade_no'])
+      logger.debug "[       DEBUG       ] In Done #{@order.inspect}"
       if @order.present?
         session[:order_id] = nil
         redirect_to completion_route
@@ -39,15 +61,15 @@ module Spree
         redirect_to edit_order_checkout_url(@order, :state => "payment")
       end
     end
-    
+    # WHY PAYMENT NOT EXIST ? 
     def alipay_notify
+      byebug
       notification = ActiveMerchant::Billing::Integrations::Alipay::Notification.new(request.raw_post)
       retrieve_order(notification.out_trade_no)
+      logger.debug "[       DEBUG       ] In Notify #{@order.inspect}"
       if @order.present? and verify_sign(request.raw_post) and valid_alipay_notification?(notification, @order.payments.first.payment_method.preferred_partner)
         if (notification.trade_status == "TRADE_SUCCESS" || notification.trade_status == "TRADE_FINISHED" )
           @order.payments.first.pend!
-          @order.payments.first.complete!
-          @order.state='complete'
           @order.finalize!
         else
           @order.payments.first.failure!
