@@ -17,7 +17,7 @@ module Spree
     cattr_accessor :skip_payment_methods
     self.skip_payment_methods = [:alipay_notify, :alipay_done]#, :tenpay_notify, :tenpay_done
     before_filter :alipay_checkout_hook, :only => [:update]
-    skip_before_filter :load_order, :ensure_valid_state, :ensure_order_not_completed, :ensure_checkout_allowed, :only => [:alipay_notify]
+    skip_before_filter :load_order, :ensure_valid_state, :setup_for_current_state, :ensure_order_not_completed, :ensure_sufficient_stock_lines, :ensure_checkout_allowed, :only => [:alipay_notify]
     skip_before_filter :ensure_valid_state, :ensure_checkout_allowed, :only=> [:alipay_done]
     # #invoid WARNING: Can't verify CSRF token authenticity
     skip_before_filter :verify_authenticity_token, :only => self.skip_payment_methods
@@ -50,12 +50,13 @@ module Spree
     #   end
 
     def alipay_done
+      
       payment_return = ActiveMerchant::Billing::Integrations::Alipay::Return.new(request.query_string)
-      byebug
       retrieve_order(request.params['out_trade_no'])
       logger.debug "[       DEBUG       ] In Done #{@order.inspect}"
       if @order.present?
         session[:order_id] = nil
+        flash[:success] = Spree.t(:order_success)
         redirect_to completion_route
       else
         redirect_to edit_order_checkout_url(@order, :state => "payment")
@@ -63,13 +64,15 @@ module Spree
     end
     # WHY PAYMENT NOT EXIST ? 
     def alipay_notify
-      byebug
+      
       notification = ActiveMerchant::Billing::Integrations::Alipay::Notification.new(request.raw_post)
       retrieve_order(notification.out_trade_no)
       logger.debug "[       DEBUG       ] In Notify #{@order.inspect}"
       if @order.present? and verify_sign(request.raw_post) and valid_alipay_notification?(notification, @order.payments.first.payment_method.preferred_partner)
         if (notification.trade_status == "TRADE_SUCCESS" || notification.trade_status == "TRADE_FINISHED" )
-          @order.payments.first.pend!
+          @order.payments.first.complete! if @order.payment_state != "paid"
+          @order.update_attributes({:state => "complete", :completed_at => Time.now})
+          @order.update!
           @order.finalize!
         else
           @order.payments.first.failure!
